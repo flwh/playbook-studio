@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Playbook Studio
+Comment=Playbook (.apbx) workflow editor
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/playbook-studio.exe %u
+Terminal=false
+Type=Application
+Icon=playbook-studio.exe
+Categories=Utility;
+StartupWMClass=playbook-studio.exe
+
+ 

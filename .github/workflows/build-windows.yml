@@ -1,0 +1,127 @@
+name: Build Windows
+
+# 在 Ubuntu 上交叉编译出 Windows x64 单文件版本（无 CGO，不需要 Docker / MinGW / NSIS）
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: playbook-studio
+  # 与 go.mod 里 require 的 wails v3 版本保持一致，避免 CLI 与库版本错配
+  WAILS3_VERSION: v3.0.0-beta.20
+  NODE_VERSION: "22"
+
+jobs:
+  build:
+    name: Build Windows x64 (cross-compile on Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # Go 版本直接取自 go.mod 的 go 指令
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Vite 8 需要 Node 20.19+ / 22.12+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装 Wails v3 CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS3_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: 环境自检
+        run: |
+          wails3 version
+          go version
+          node -v
+
+      # 程序把 7-Zip 独立控制台版（7zr.exe）经 go:embed 编译进二进制，
+      # 首次运行释放到 %LOCALAPPDATA%\PlaybookStudio\tools，目标机器无需安装 7-Zip。
+      # 该文件是 go:embed 的必需输入，必须随仓库提交（.gitignore 不能用裸 bin 规则屏蔽）。
+      - name: 校验内置 7-Zip
+        run: |
+          python3 - <<'PY'
+          import pathlib, struct, sys
+
+          exe = pathlib.Path("internal/sevenzip/bin/7zr.exe")
+          license = pathlib.Path("internal/sevenzip/bin/LICENSE-7zip.txt")
+          for f in (exe, license):
+              if not f.is_file():
+                  sys.exit(f"缺少内嵌 7-Zip 文件：{f}（被 go:embed 引用，必须提交到仓库）")
+
+          data = exe.read_bytes()
+          pe = struct.unpack_from("<I", data, 0x3C)[0]
+          machine = struct.unpack_from("<H", data, pe + 4)[0]
+          print(f"{exe.name}: {len(data) / 1024:.1f} KB, Machine=0x{machine:04X}")
+
+          if len(data) < 100_000:
+              sys.exit("7zr.exe 体积异常，文件可能不完整")
+
+          # 7-Zip 官方只发布 x86 版 7zr.exe（0x014C），在 x64 Windows 上原生运行
+          if machine != 0x014C:
+              print(f"提示：官方 7zr.exe 通常为 x86 (0x014C)，当前是 0x{machine:04X}")
+          PY
+
+      # 必须点名 windows:build —— 顶层的 build 任务按宿主系统(GOOS=linux)分发，
+      # 在 Ubuntu 上直接 `wails3 build` 会构建 Linux 版本。
+      # windows:build 在 CGO_ENABLED=0（默认）下走 build:native，即纯 Go 交叉编译：
+      # go mod tidy → 生成前端 bindings → npm install → vue-tsc → vite build
+      # → 生成 wails_windows_amd64.syso（图标 + manifest）→ go build GOOS=windows
+      # 产物：bin/playbook-studio.exe（免安装，双击即可运行）
+      - name: 交叉编译 Windows 版本
+        run: wails3 task windows:build
+
+      - name: 核对产物并断言 x64
+        run: |
+          exe="bin/$APP_NAME.exe"
+          test -f "$exe" || { echo "未找到构建产物：$exe"; exit 1; }
+
+          out="bin/$APP_NAME-windows-amd64.exe"
+          cp "$exe" "$out"
+
+          python3 - "$out" <<'PY'
+          import pathlib, struct, sys
+
+          p = pathlib.Path(sys.argv[1])
+          data = p.read_bytes()
+          pe = struct.unpack_from("<I", data, 0x3C)[0]
+          machine = struct.unpack_from("<H", data, pe + 4)[0]
+
+          if machine != 0x8664:
+              sys.exit(f"产物不是 x64，Machine=0x{machine:04X}")
+
+          print(f"产物架构校验通过：x64 (0x8664)，{len(data) / 1024 / 1024:.2f} MB")
+          PY
+
+          ls -lh bin
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-windows-amd64
+          path: bin/${{ env.APP_NAME }}-windows-amd64.exe
+          if-no-files-found: error
+          retention-days: 30

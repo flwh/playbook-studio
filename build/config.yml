@@ -1,0 +1,57 @@
+# This file contains the configuration for this project.
+# When you update `info` or `fileAssociations`, run `wails3 task common:update:build-assets` to update the assets.
+# Note that this will overwrite any changes you have made to the assets.
+version: '3'
+
+# This information is used to generate the build assets.
+info:
+  companyName: "Playbook Studio" # The name of the company
+  productName: "Playbook Studio" # The name of the application
+  productIdentifier: "cc.playbook.studio" # The unique product identifier
+  description: "AME Playbook (.apbx) 工作流脚本编辑器" # The application description
+  copyright: "(c) 2026, Playbook Studio" # Copyright text
+  comments: "编辑 .apbx 中的 YAML 工作流脚本" # Comments
+  version: "0.1.0" # The application version
+
+# Dev mode configuration
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - node_modules
+      - frontend
+      - bindings
+      - bin
+    file:
+      - .DS_Store
+      - .gitignore
+      - .gitkeep
+      - "*_test.go"
+    watched_extension:
+      - "*.go"
+      - "*.js" # Watch for changes to JS/TS files included using the //wails:include directive.
+      - "*.ts" # The frontend directory will be excluded entirely by the setting above.
+    git_ignore: true
+  executes:
+    - cmd: wails3 build DEV=true
+      type: blocking
+    - cmd: wails3 task common:dev:frontend
+      type: background
+    - cmd: wails3 task run
+      type: primary
+
+# File Associations
+fileAssociations:
+  - ext: apbx
+    name: Playbook
+    description: AME Playbook 归档
+    iconName: appicon
+    role: Editor
+
+# Other data
+other:
+  - name: sevenzip
+    description: 需要系统安装 7-Zip 以便解包/打包加密的 .apbx 归档

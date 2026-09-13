@@ -1,0 +1,17 @@
+.task
+# 只忽略构建产物目录（仓库根），注意不能写成裸 "bin"：
+# 那会连带屏蔽 internal/sevenzip/bin/，而该目录被 go:embed 引用，必须提交
+/bin
+# 仓库根目录下的临时/调试可执行文件（正式产物在 bin/ 里，已忽略）
+/*.exe
+# Windows 图标/manifest 资源对象，由 wails3 generate syso 在构建时生成
+*.syso
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# Mobile generated (per-machine; overlays hold absolute paths)
+build/ios/xcode/overlay.json
+build/ios/xcode/gen/
+build/android/overlay.json
+build/android/gen/

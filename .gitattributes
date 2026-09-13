@@ -1,0 +1,4 @@
+# 内嵌的 7-Zip 可执行文件必须按二进制原样提交/检出，
+# 避免被 core.autocrlf 之类的换行转换破坏 go:embed 的内容。
+*.exe binary
+internal/sevenzip/bin/7zr.exe binary
