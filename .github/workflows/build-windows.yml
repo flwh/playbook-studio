@@ -1,20 +1,31 @@
 name: Build Windows
 
-# 在 Ubuntu 上交叉编译出 Windows x64 单文件版本（无 CGO，不需要 Docker / MinGW / NSIS）
+# 仅手动触发：GitHub → Actions → Build Windows → Run workflow
 on:
-  push:
-    branches: [main, master]
-    tags: ["v*"]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 版本号（如 v0.1.0）；留空则从 build/config.yml 的 info.version 推导
+        required: false
+        type: string
+      publish:
+        description: 发布到 Releases（会自动打 tag 并上传 exe）
+        required: false
+        default: false
+        type: boolean
+      notes:
+        description: 发布说明；留空则交由 GitHub 自动生成
+        required: false
+        type: string
 
 concurrency:
   group: build-windows-${{ github.ref }}
-  cancel-in-progress: true
+  # 手动触发，且可能在发布，不要中途取消
+  cancel-in-progress: false
 
+# 打 tag 与创建 Release 需要写权限
 permissions:
-  contents: read
+  contents: write
 
 env:
   APP_NAME: playbook-studio
@@ -83,6 +94,36 @@ jobs:
           go version
           node -v
 
+      # 版本号：优先用手动输入，留空则从 build/config.yml 的 info.version 推导
+      - name: 解析版本号
+        id: meta
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -eo pipefail
+          tag=$(python3 - "$TAG_INPUT" <<'PY'
+          import re, sys
+
+          given = (sys.argv[1] or "").strip()
+          if given:
+              t = given if given.startswith("v") else "v" + given
+          else:
+              txt = open("build/config.yml", encoding="utf-8").read()
+              m = re.search(r"^info:\s*$", txt, re.M)
+              seg = txt[m.end():] if m else txt
+              v = re.search(r"^\s+version:\s*['\"]?([0-9][0-9A-Za-z.\-+]*)['\"]?", seg, re.M)
+              if not v:
+                  sys.exit("无法从 build/config.yml 的 info.version 读取版本号，请手动填写 tag")
+              t = "v" + v.group(1)
+
+          if not re.fullmatch(r"v[0-9][0-9A-Za-z.\-+]*", t):
+              sys.exit(f"版本号格式不合法: {t}")
+          print(t)
+          PY
+          )
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "版本号: $tag"
+
       # 程序把 7-Zip 独立控制台版（7zr.exe）经 go:embed 编译进二进制，
       # 首次运行释放到 %LOCALAPPDATA%\PlaybookStudio\tools，目标机器无需安装 7-Zip。
       # 该文件是 go:embed 的必需输入，必须随仓库提交（.gitignore 不能用裸 bin 规则屏蔽）。
@@ -112,19 +153,18 @@ jobs:
 
       # 必须点名 windows:build —— 顶层的 build 任务按宿主系统(GOOS=linux)分发，
       # 在 Ubuntu 上直接 `wails3 build` 会构建 Linux 版本。
-      # windows:build 在 CGO_ENABLED=0（默认）下走 build:native，即纯 Go 交叉编译：
-      # go mod tidy → 生成前端 bindings → npm install → vue-tsc → vite build
-      # → 生成 wails_windows_amd64.syso（图标 + manifest）→ go build GOOS=windows
+      # windows:build 在 CGO_ENABLED=0（默认）下走 build:native，即纯 Go 交叉编译。
       # 产物：bin/playbook-studio.exe（免安装，双击即可运行）
       - name: 交叉编译 Windows 版本
         run: wails3 task windows:build
 
       - name: 核对产物并断言 x64
         run: |
+          set -eo pipefail
           exe="bin/$APP_NAME.exe"
           test -f "$exe" || { echo "未找到构建产物：$exe"; exit 1; }
 
-          out="bin/$APP_NAME-windows-amd64.exe"
+          out="bin/$APP_NAME-${{ steps.meta.outputs.tag }}-windows-amd64.exe"
           cp "$exe" "$out"
 
           python3 - "$out" <<'PY'
@@ -146,7 +186,33 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.APP_NAME }}-windows-amd64
-          path: bin/${{ env.APP_NAME }}-windows-amd64.exe
+          name: ${{ env.APP_NAME }}-${{ steps.meta.outputs.tag }}-windows-amd64
+          path: bin/${{ env.APP_NAME }}-${{ steps.meta.outputs.tag }}-windows-amd64.exe
           if-no-files-found: error
           retention-days: 30
+
+      # 勾选 publish 时才会执行：打 tag（轻量 tag，不需要提交者身份）→ 创建 Release
+      - name: 打 tag 并发布到 Releases
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          set -eo pipefail
+          asset="bin/$APP_NAME-$TAG-windows-amd64.exe"
+          test -f "$asset" || { echo "未找到待发布产物：$asset"; exit 1; }
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG 已存在，直接复用"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "已创建并推送 tag $TAG"
+          fi
+
+          if [ -n "$NOTES" ]; then
+            gh release create "$TAG" "$asset" --title "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" "$asset" --title "$TAG" --generate-notes
+          fi
