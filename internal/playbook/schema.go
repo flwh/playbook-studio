@@ -71,6 +71,14 @@ var tagSpecs = []TagSpec{
 		},
 	},
 	{
+		Tag: "scheduledTask", Title: "计划任务", Group: "流程", Flow: true,
+		Fields: []FieldSpec{
+			{Key: "path", Label: "任务路径", Kind: "text", Required: true, Placeholder: `\\Microsoft\\Windows\\...`},
+			{Key: "operation", Label: "操作", Kind: "enum", Enum: []string{"delete", "enable", "disable", "deleteFolder"}},
+			{Key: "data", Label: "原始任务 XML (data)", Kind: "textarea", Help: "operation 为 enable 时用于注册新任务"},
+		},
+	},
+	{
 		Tag: "run", Title: "运行程序", Group: "执行", Fields: []FieldSpec{
 			{Key: "exe", Label: "可执行文件", Kind: "text", Required: true},
 			{Key: "args", Label: "参数", Kind: "text"},

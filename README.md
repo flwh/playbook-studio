@@ -56,12 +56,12 @@ AME Playbook（`.apbx`）工作流脚本编辑器 —— 基于 **Wails v3 + Vue
 
 ## 支持的 action 类型
 
-共 15 种，按分组：
+共 16 种，按分组：
 
 | 分组 | 标签 |
 |---|---|
 | 注册表 | `!registryValue` `!registryKey` |
-| 流程 | `!task` `!writeStatus` `!status` `!taskKill` |
+| 流程 | `!task` `!writeStatus` `!status` `!taskKill` `!scheduledTask` |
 | 执行 | `!run` `!cmd` `!powerShell` `!download` |
 | 系统 | `!service` `!appx` `!file` `!software` `!systemPackage`（已废弃） |
 
