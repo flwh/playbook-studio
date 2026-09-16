@@ -99,11 +99,6 @@ func (b *Bundle) Validate() []Issue {
 					}
 				}
 			}
-			// option / options 同时出现
-			if a.Option != "" && len(a.Options) > 0 {
-				b.addIssue(&issues, "warning", key, a.Line, i, a.Tag,
-					"同时使用了 option 与 options，行为可能不符合预期")
-			}
 			// option 是否在 playbook.conf 中定义过
 			for _, opt := range append([]string{a.Option}, a.Options...) {
 				o := strings.TrimPrefix(strings.TrimSpace(opt), "!")
@@ -122,10 +117,6 @@ func (b *Bundle) Validate() []Issue {
 				data, hasData := a.FieldValue("data")
 				typ, _ := a.FieldValue("type")
 				if op != "delete" {
-					if !hasData || data == "" {
-						b.addIssue(&issues, "warning", key, a.Line, i, a.Tag,
-							"没有 data，将写入空值")
-					}
 					if typ == "REG_DWORD" && data != "" && !isNumeric(data) {
 						b.addIssue(&issues, "warning", key, a.Line, i, a.Tag,
 							"REG_DWORD 的 data 不是数字: %s", data)
